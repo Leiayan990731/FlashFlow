@@ -1,0 +1,159 @@
+name: flashflow
+
+x-app-environment: &app-environment
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  POSTGRES_URL: postgres://${POSTGRES_USER:-flashflow}:${POSTGRES_PASSWORD:-flashflow-local-password}@postgres:5432/${POSTGRES_DB:-flashflow}?sslmode=disable
+  REDIS_ADDRS: redis:6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-flashflow-local-password}
+  KAFKA_BROKERS: kafka:9092
+  KAFKA_ORDER_TOPIC: flashflow.order.requested
+  KAFKA_DLQ_TOPIC: flashflow.order.dlq
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-flashflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flashflow-local-password}
+      POSTGRES_DB: ${POSTGRES_DB:-flashflow}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks: [backend]
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-flashflow-local-password}"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-flashflow-local-password}
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks: [backend]
+
+  kafka:
+    image: apache/kafka:3.9.2
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
+      KAFKA_NUM_PARTITIONS: 12
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - kafka-data:/tmp/kraft-combined-logs
+    restart: unless-stopped
+    networks: [backend]
+
+  topic-init:
+    image: apache/kafka:3.9.2
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-ec"]
+    command: >-
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists
+      --topic flashflow.order.requested --partitions 12 --replication-factor 1 &&
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists
+      --topic flashflow.order.dlq --partitions 3 --replication-factor 1
+    networks: [backend]
+
+  migrator:
+    build: .
+    image: flashflow:local
+    entrypoint: ["/app/migrator"]
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+    networks: [backend]
+
+  gateway:
+    build: .
+    image: flashflow:local
+    entrypoint: ["/app/gateway"]
+    environment:
+      <<: *app-environment
+      HTTP_ADDR: :8080
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      topic-init:
+        condition: service_completed_successfully
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks: [backend]
+
+  relay:
+    image: flashflow:local
+    entrypoint: ["/app/relay"]
+    environment:
+      <<: *app-environment
+      ADMIN_ADDR: :9090
+      RELAY_CONCURRENCY: 8
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      topic-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks: [backend]
+
+  order-worker:
+    image: flashflow:local
+    entrypoint: ["/app/order-worker"]
+    environment:
+      <<: *app-environment
+      ADMIN_ADDR: :9090
+      WORKER_CONCURRENCY: 4
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      topic-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks: [backend]
+
+volumes:
+  postgres-data:
+  redis-data:
+  kafka-data:
+
+networks:
+  backend:
+    driver: bridge

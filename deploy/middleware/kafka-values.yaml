@@ -1,0 +1,51 @@
+fullnameOverride: flashflow-kafka
+kraftVersion: 1
+
+listeners:
+  client:
+    protocol: PLAINTEXT
+  controller:
+    protocol: PLAINTEXT
+  interbroker:
+    protocol: PLAINTEXT
+  external:
+    protocol: PLAINTEXT
+
+overrideConfiguration:
+  auto.create.topics.enable: "false"
+  default.replication.factor: "3"
+  min.insync.replicas: "2"
+  offsets.topic.replication.factor: "3"
+  transaction.state.log.replication.factor: "3"
+  transaction.state.log.min.isr: "2"
+  num.partitions: "24"
+  unclean.leader.election.enable: "false"
+
+controller:
+  replicaCount: 3
+  controllerOnly: false
+  persistence:
+    enabled: true
+    size: 50Gi
+  resources:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits: {cpu: "2", memory: 3Gi}
+  pdb:
+    create: true
+    maxUnavailable: 1
+
+broker:
+  replicaCount: 0
+
+externalAccess:
+  enabled: false
+
+metrics:
+  jmx:
+    enabled: true
+  serviceMonitor:
+    enabled: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: true

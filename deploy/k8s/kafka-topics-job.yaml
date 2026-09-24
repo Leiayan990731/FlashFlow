@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flashflow-kafka-topics
+  namespace: flashflow
+  labels:
+    app.kubernetes.io/name: kafka-topic-init
+spec:
+  backoffLimit: 12
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka-topic-init
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: kafka-topics
+          image: apache/kafka:4.0.0
+          command: ["/bin/bash", "-ec"]
+          args:
+            - >-
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server flashflow-kafka:9092
+              --create --if-not-exists --topic flashflow.order.requested
+              --partitions 24 --replication-factor 3 --config min.insync.replicas=2 &&
+              /opt/kafka/bin/kafka-topics.sh --bootstrap-server flashflow-kafka:9092
+              --create --if-not-exists --topic flashflow.order.dlq
+              --partitions 6 --replication-factor 3 --config min.insync.replicas=2
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: flashflow
+  labels:
+    app.kubernetes.io/part-of: flashflow
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flashflow
+  namespace: flashflow
+  labels:
+    app.kubernetes.io/part-of: flashflow
+automountServiceAccountToken: false

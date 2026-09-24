@@ -1,0 +1,55 @@
+fullnameOverride: flashflow-redis
+architecture: replication
+
+auth:
+  enabled: true
+  sentinel: true
+  existingSecret: flashflow-middleware-secrets
+  existingSecretPasswordKey: redis-password
+
+commonConfiguration: |-
+  appendonly yes
+  appendfsync everysec
+  save ""
+  maxmemory-policy noeviction
+  min-replicas-to-write 1
+  min-replicas-max-lag 5
+
+master:
+  persistence:
+    enabled: true
+    size: 20Gi
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "2", memory: 2Gi}
+  pdb:
+    create: true
+    minAvailable: 1
+
+replica:
+  replicaCount: 2
+  persistence:
+    enabled: true
+    size: 20Gi
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "2", memory: 2Gi}
+  pdb:
+    create: true
+    minAvailable: 1
+
+sentinel:
+  enabled: true
+  masterSet: flashflow
+  quorum: 2
+  automateClusterRecovery: true
+  redisShutdownWaitFailover: true
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: true

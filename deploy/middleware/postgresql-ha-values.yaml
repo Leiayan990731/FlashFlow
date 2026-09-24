@@ -1,0 +1,44 @@
+fullnameOverride: flashflow-postgresql-ha
+
+postgresql:
+  replicaCount: 3
+  username: flashflow
+  database: flashflow
+  existingSecret: flashflow-middleware-secrets
+  syncReplication: false
+  extendedConf: |-
+    synchronous_commit = 'remote_apply'
+    synchronous_standby_names = 'ANY 1 (*)'
+    max_connections = 500
+  persistence:
+    enabled: true
+    size: 50Gi
+  resources:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits: {cpu: "2", memory: 4Gi}
+  pdb:
+    create: true
+    minAvailable: 2
+  networkPolicy:
+    enabled: true
+    allowExternal: true
+
+pgpool:
+  replicaCount: 2
+  existingSecret: flashflow-middleware-secrets
+  numInitChildren: 200
+  maxPool: 2
+  resources:
+    requests: {cpu: 250m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+  pdb:
+    create: true
+    minAvailable: 1
+  networkPolicy:
+    enabled: true
+    allowExternal: true
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false

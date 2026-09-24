@@ -1,0 +1,23 @@
+# Optional: install KEDA, remove the order-worker HPA from order-worker.yaml,
+# then apply this object to scale on Kafka consumer lag instead of CPU.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: order-worker
+  namespace: flashflow
+spec:
+  scaleTargetRef:
+    name: order-worker
+  minReplicaCount: 3
+  maxReplicaCount: 20
+  pollingInterval: 15
+  cooldownPeriod: 300
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: flashflow-kafka:9092
+        consumerGroup: order-workers
+        topic: flashflow.order.requested
+        lagThreshold: "1000"
+        offsetResetPolicy: earliest
+        allowIdleConsumers: "false"

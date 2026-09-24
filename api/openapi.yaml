@@ -1,0 +1,180 @@
+openapi: 3.1.0
+info:
+  title: FlashFlow API
+  version: 1.0.0
+  description: High-concurrency asynchronous inventory reservation and order API.
+servers:
+  - url: http://localhost:8080
+paths:
+  /v1/products/{productId}:
+    get:
+      operationId: getProduct
+      summary: Read product metadata and current reservable stock
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: Product found
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Product'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/orders:
+    post:
+      operationId: createOrder
+      summary: Atomically reserve inventory and enqueue an order
+      security:
+        - UserId: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Stable key for one checkout intent; scoped to X-User-ID.
+          schema: {type: string, minLength: 1, maxLength: 256}
+        - name: X-Request-ID
+          in: header
+          required: false
+          schema: {type: string, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateOrderRequest'}
+            example: {productId: sku-phone, quantity: 1}
+      responses:
+        '200':
+          description: A retry returned the already confirmed order for this idempotency key.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Order'}
+        '202':
+          description: Reservation accepted; poll the Location header.
+          headers:
+            Location:
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Order'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409':
+          description: Insufficient stock
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+        '429':
+          description: Distributed rate limit exceeded
+          headers:
+            Retry-After:
+              schema: {type: integer}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorResponse'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /v1/orders/{orderId}:
+    get:
+      operationId: getOrder
+      summary: Read the eventual order status
+      security:
+        - UserId: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Order found
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Order'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /health/live:
+    get:
+      operationId: liveness
+      responses:
+        '200': {description: Process is alive}
+  /health/ready:
+    get:
+      operationId: readiness
+      responses:
+        '200': {description: Required dependencies are ready}
+        '503': {description: At least one required dependency is unavailable}
+components:
+  securitySchemes:
+    UserId:
+      type: apiKey
+      in: header
+      name: X-User-ID
+      description: Demo identity header. Replace with verified OIDC/JWT identity in production.
+  parameters:
+    ProductId:
+      name: productId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
+  schemas:
+    CreateOrderRequest:
+      type: object
+      additionalProperties: false
+      required: [productId, quantity]
+      properties:
+        productId: {type: string, maxLength: 128}
+        quantity: {type: integer, minimum: 1, maximum: 10}
+    Product:
+      type: object
+      required: [id, name, priceCents, stock]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        priceCents: {type: integer, format: int64, minimum: 0}
+        stock: {type: integer, format: int64, minimum: 0}
+    Order:
+      type: object
+      required: [orderId, status]
+      properties:
+        orderId: {type: string, format: uuid}
+        userId: {type: string}
+        productId: {type: string}
+        quantity: {type: integer}
+        status: {type: string, enum: [PENDING, CONFIRMED, REJECTED]}
+        failureReason: {type: string}
+        requestedAt: {type: string, format: date-time}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: {type: string}
+            message: {type: string}
+  responses:
+    BadRequest:
+      description: Malformed input
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    Unauthorized:
+      description: Missing or invalid identity
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+    Unavailable:
+      description: A required dependency is unavailable or the instance is overloaded
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}

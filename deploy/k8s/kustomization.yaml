@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - migrator-job.yaml
+  - kafka-topics-job.yaml
+  - gateway.yaml
+  - relay.yaml
+  - order-worker.yaml
+  - ingress.yaml
+  - network-policy.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: flashflow
+images:
+  - name: ghcr.io/example/flashflow
+    newTag: 1.0.0

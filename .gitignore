@@ -1,0 +1,12 @@
+.env
+.go-toolchain/
+.go-toolchain.zip
+.idea/
+.vscode/
+bin/
+coverage.out
+*.log
+*.exe
+dist/
+deploy/k8s/secret.yaml
+deploy/k8s/middleware-secret.yaml
